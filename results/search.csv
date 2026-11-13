@@ -1,0 +1,46 @@
+position,depth,algorithm,column,score,nodes,cutoffs,median_ms
+Opening,2,Minimax,4,3,57,0,0.381
+Opening,2,Alpha-Beta,4,3,21,6,0.125
+Opening,2,Alpha-Beta left first,4,3,27,5,0.145
+Opening,4,Minimax,4,6,2801,0,16.558
+Opening,4,Alpha-Beta,4,6,178,60,0.8
+Opening,4,Alpha-Beta left first,4,6,419,89,2.11
+Opening,6,Minimax,4,9,137257,0,819.578
+Opening,6,Alpha-Beta,4,9,1370,474,5.561
+Opening,6,Alpha-Beta left first,4,9,9624,2170,46.979
+Immediate win,2,Minimax,4,100001,50,0,0.29
+Immediate win,2,Alpha-Beta,4,100001,14,6,0.047
+Immediate win,2,Alpha-Beta left first,4,100001,29,4,0.144
+Immediate win,4,Minimax,4,100003,2150,0,11.595
+Immediate win,4,Alpha-Beta,4,100003,98,48,0.338
+Immediate win,4,Alpha-Beta left first,4,100003,510,86,2.416
+Immediate win,6,Minimax,4,100005,87659,0,505.693
+Immediate win,6,Alpha-Beta,4,100005,683,339,5.549
+Immediate win,6,Alpha-Beta left first,4,100005,7478,1361,34.625
+Must block,2,Minimax,4,5,57,0,0.275
+Must block,2,Alpha-Beta,4,5,21,6,0.056
+Must block,2,Alpha-Beta left first,4,5,33,5,0.144
+Must block,4,Minimax,4,8,2430,0,12.861
+Must block,4,Alpha-Beta,4,8,103,18,0.482
+Must block,4,Alpha-Beta left first,4,8,611,98,2.966
+Must block,6,Minimax,4,8,103140,0,558.359
+Must block,6,Alpha-Beta,4,8,1275,285,6.247
+Must block,6,Alpha-Beta left first,4,8,10989,2390,51.187
+Search comparison,2,Minimax,4,1,57,0,0.315
+Search comparison,2,Alpha-Beta,4,1,22,6,0.093
+Search comparison,2,Alpha-Beta left first,4,1,38,4,0.197
+Search comparison,4,Minimax,4,5,2801,0,15.644
+Search comparison,4,Alpha-Beta,4,5,289,72,1.333
+Search comparison,4,Alpha-Beta left first,4,5,1001,158,4.804
+Search comparison,6,Minimax,4,6,133656,0,745.172
+Search comparison,6,Alpha-Beta,4,6,5555,1023,25.964
+Search comparison,6,Alpha-Beta left first,4,6,24701,4281,137.387
+Midgame,2,Minimax,4,11,57,0,0.381
+Midgame,2,Alpha-Beta,4,11,21,6,0.133
+Midgame,2,Alpha-Beta left first,4,11,35,4,0.174
+Midgame,4,Minimax,4,12,2794,0,16.331
+Midgame,4,Alpha-Beta,4,12,208,65,0.962
+Midgame,4,Alpha-Beta left first,4,12,789,117,3.925
+Midgame,6,Minimax,4,16,132509,0,772.643
+Midgame,6,Alpha-Beta,4,16,1871,534,6.813
+Midgame,6,Alpha-Beta left first,4,16,16289,2817,83.496

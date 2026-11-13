@@ -1,0 +1,7 @@
+depth,opponent,wins,draws,losses
+2,Random,20,0,0
+2,Greedy,18,0,2
+4,Random,20,0,0
+4,Greedy,17,2,1
+6,Random,20,0,0
+6,Greedy,19,0,1
