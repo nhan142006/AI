@@ -1,9 +1,9 @@
 case,expected_reason,expected_column,actual_column,alternative,score,explanation,comparison,result
-Immediate win,win,4,4,5,100003,Column 4 makes four in a row and wins immediately.,Column 5 scores lower at this search depth.,PASS
-Must block,block,4,4,3,8,Column 4 removes all immediate winning replies.,"If AI played 3, you could win next in column 4.",PASS
-Search comparison,search,4,4,7,5,Column 4 has the highest Minimax score at depth 4.,Column 7 scores lower at this search depth.,PASS
-Opening,search,4,4,3,6,Column 4 has the highest Minimax score at depth 4.,Column 3 scores lower at this search depth.,PASS
-Mirrored block,block,4,4,3,8,Column 4 removes all immediate winning replies.,"If AI played 3, you could win next in column 4.",PASS
-Vertical block,block,1,1,4,3,Column 1 removes all immediate winning replies.,"If AI played 4, you could win next in column 1.",PASS
-Vertical win,win,1,1,4,100003,Column 1 makes four in a row and wins immediately.,Column 4 scores lower at this search depth.,PASS
-Tied winning moves,win,5,5,1,100003,Column 5 makes four in a row and wins immediately.,Column 1 ties. AI keeps the first move in center-first order.,PASS
+Immediate win,win,4,4,5,100003,Column 4 makes four in a row and wins immediately.,Column 5 gives +3; column 4 gives Win in 1.,PASS
+Must block,block,4,4,3,8,Column 4 blocks your four in a row.,"If AI played 3, you could win next in column 4.",PASS
+Search comparison,search,4,4,7,5,Column 4 has the highest Minimax score at depth 4.,Column 7 gives +2; column 4 gives +5.,PASS
+Opening,search,4,4,3,6,Column 4 has the highest Minimax score at depth 4.,Column 3 gives +3; column 4 gives +6.,PASS
+Mirrored block,block,4,4,3,8,Column 4 blocks your four in a row.,"If AI played 3, you could win next in column 4.",PASS
+Vertical block,block,1,1,4,3,Column 1 blocks your four in a row.,"If AI played 4, you could win next in column 1.",PASS
+Vertical win,win,1,1,4,100003,Column 1 makes four in a row and wins immediately.,Column 4 gives +8; column 1 gives Win in 1.,PASS
+Tied winning moves,win,5,5,1,100003,Column 5 makes four in a row and wins immediately.,Column 1 ties with column 5. AI keeps the first move in center-first order.,PASS

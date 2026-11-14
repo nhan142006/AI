@@ -7,7 +7,8 @@ from random import Random
 from statistics import median
 from time import perf_counter
 
-from engine import DEMO_POSITIONS, ORDER, analyze, drop, legal_moves, replay, search, winning_columns, won
+from engine import (DEMO_POSITIONS, EMPTY, ORDER, WIN, analyze, best_line, drop, heuristic, legal_moves,
+                    outcome, replay, search, winning_columns, won)
 
 OUTPUT = Path(__file__).with_name("results")
 
@@ -124,8 +125,140 @@ def verify_explanations():
     return len(rows)
 
 
+def random_positions(count, seed=2026):
+    """Distinct unfinished positions reached by 2 to 30 random moves, with the side to move."""
+    rng, seen = Random(seed), set()
+    while len(seen) < count:
+        board, player = EMPTY, 0
+        for _ in range(rng.randint(2, 30)):
+            board = drop(board, rng.choice(legal_moves(board)), player)
+            if won(board[player]) or not legal_moves(board):
+                break
+            player = 1 - player
+        else:
+            if board not in seen:
+                seen.add(board)
+                yield board, player
+
+
+def forces(board, turn, plies, attacker):
+    """Exhaustive check, independent of search(): can `attacker` make four within `plies` plies?"""
+    if won(board[attacker]):
+        return True
+    if won(board[1 - attacker]) or plies <= 0:
+        return False
+    replies = (forces(drop(board, col, turn), 1 - turn, plies - 1, attacker) for col in legal_moves(board))
+    return any(replies) if turn == attacker else all(replies)
+
+
+def check_claims(board, player, result):
+    """Replay every claim an explanation makes. Returns (claim, holds) pairs."""
+    depth, col, scores = result["depth"], result["column"], result["scores"]
+    opponent, after = 1 - player, drop(board, result["column"], player)
+    checks = [("chosen has the top score", scores[col] == max(scores.values()))]
+    for move, score in scores.items():
+        position = drop(board, move, player)
+        kind, moves = outcome(score, depth)
+        if kind == "eval":
+            holds = not forces(position, opponent, depth - 1, player) and not forces(position, opponent, depth - 1, opponent)
+        else:
+            side = player if kind == "win" else opponent
+            plies = 2 * moves - 1 if kind == "win" else 2 * moves
+            shorter = plies >= 3 and forces(position, opponent, plies - 3, side)
+            holds = forces(position, opponent, plies - 1, side) and not shorter
+        checks.append((f"label of column {move + 1}", holds))
+    reason, threats = result["reason"], winning_columns(board, opponent)
+    losing = [move for move in scores if move != col and scores[move] <= -WIN]
+    if reason == "win":
+        checks.append(("wins immediately", won(after[player])))
+    if reason == "block":
+        checks.append(("blocks the threat", bool(threats) and not winning_columns(after, opponent)))
+    if reason == "lost":
+        checks.append(("every move loses", all(score <= -WIN for score in scores.values())))
+        if "cannot block both" in result["explanation"]:
+            checks.append(("two winning columns", len(threats) > 1))
+    if reason == "avoid":
+        checks.append(("named columns lose by force", bool(losing) and all(
+            forces(drop(board, move, player), opponent, depth - 1, opponent) for move in losing)))
+    if reason == "threat":
+        checks.append(("creates a threat", bool(winning_columns(after, player))))
+    alt = result["alternative"]
+    if alt is not None:
+        if "could win next" in result["comparison"]:
+            checks.append(("alternative allows an immediate win", bool(winning_columns(drop(board, alt, player), opponent))))
+        if "ties" in result["comparison"]:
+            checks.append(("alternative ties", scores[alt] == scores[col]))
+        # The expected line must be legal and end in the position the score describes.
+        position, turn, line = board, player, result["line"]
+        legal = bool(line) and line[0] == alt
+        for move in line:
+            legal = legal and move in legal_moves(position) and not won(position[0]) and not won(position[1])
+            if legal:
+                position, turn = drop(position, move, turn), 1 - turn
+        if legal and won(position[1 - turn]):
+            end = (WIN + depth - len(line)) * (1 if 1 - turn == player else -1)
+        elif legal and not legal_moves(position):
+            end = 0
+        else:
+            end = heuristic(position, player) if legal and len(line) == depth else None
+        checks.append(("expected line reaches the claimed score", end == scores[alt]))
+        checks.append(("line score matches the search", best_line(board, player, depth, alt)[0] == scores[alt]))
+    return checks
+
+
+def faithfulness(plan=((4, 1000), (6, 200))):
+    """RQ1: are the explanations true? Replays each claim on random positions."""
+    rows, failures = [], []
+    for depth, count in plan:
+        for index, (board, player) in enumerate(random_positions(count, seed=2026 + depth)):
+            result = analyze(board, player, depth)
+            if depth <= 4:  # Unpruned Minimax is affordable here: scores must match exactly.
+                extra = [("scores equal unpruned Minimax",
+                          result["scores"] == search(board, player, depth, pruning=False, exact_alternatives=True)[2])]
+            else:
+                extra = []
+            checks = check_claims(board, player, result) + extra
+            failed = [claim for claim, holds in checks if not holds]
+            failures += [(depth, index, result["reason"], claim) for claim in failed]
+            rows.append((depth, index, (board[0] | board[1]).bit_count(), result["reason"], len(checks), len(failed)))
+    write_csv("faithfulness.csv", ("depth", "position", "plies", "reason", "claims", "failed"), rows)
+    write_csv("faithfulness_failures.csv", ("depth", "position", "reason", "claim"), failures)
+    summary = []
+    for depth, _ in plan:
+        for reason in ("win", "block", "forced_win", "lost", "avoid", "threat", "search"):
+            group = [row for row in rows if row[0] == depth and row[3] == reason]
+            if group:
+                summary.append((depth, reason, len(group), sum(row[5] == 0 for row in group),
+                                sum(row[4] for row in group), sum(row[5] for row in group)))
+    write_csv("faithfulness_summary.csv", ("depth", "reason", "positions", "positions_all_true",
+                                           "claims", "claims_false"), summary)
+    return summary
+
+
+def overhead(count=20, depths=(2, 4, 6, 8)):
+    """RQ3: cost of choosing a move (Alpha-Beta) against choosing and explaining it."""
+    rows = []
+    for index, (board, player) in enumerate(random_positions(count, seed=7)):
+        for depth in depths:
+            plain, explained = [], []
+            for _ in range(3):
+                start = perf_counter()
+                stats = search(board, player, depth)[3]
+                plain.append((perf_counter() - start) * 1000)
+                start = perf_counter()
+                result = analyze(board, player, depth)
+                explained.append((perf_counter() - start) * 1000)
+            # analyze() also searches the expected line; that search is timed but has no node counter.
+            rows.append((index, depth, stats.nodes, result["nodes"], round(median(plain), 3), round(median(explained), 3)))
+    write_csv("overhead.csv", ("position", "depth", "nodes_plain", "nodes_explained", "ms_plain", "ms_explained"), rows)
+    return rows
+
+
 if __name__ == "__main__":
     print(f"Explanation checks: {verify_explanations()} passed", flush=True)
+    for depth, reason, positions, passed, claims, false in faithfulness():
+        print(f"Faithfulness depth {depth} {reason}: {passed}/{positions} positions, {claims - false}/{claims} claims", flush=True)
+    print(f"Overhead: {len(overhead())} measurements", flush=True)
     print(f"Search benchmark: {len(benchmark())} configurations", flush=True)
     for depth, opponent, wins, draws, losses in playing_strength():
         print(f"Depth {depth} vs {opponent}: {wins}W / {draws}D / {losses}L", flush=True)

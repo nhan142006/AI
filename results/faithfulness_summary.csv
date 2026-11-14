@@ -1,0 +1,15 @@
+depth,reason,positions,positions_all_true,claims,claims_false
+4,win,266,266,3164,0
+4,block,153,153,1960,0
+4,forced_win,23,23,251,0
+4,lost,34,34,459,0
+4,avoid,81,81,977,0
+4,threat,79,79,953,0
+4,search,364,364,4042,0
+6,win,48,48,527,0
+6,block,29,29,344,0
+6,forced_win,7,7,70,0
+6,lost,7,7,89,0
+6,avoid,18,18,196,0
+6,threat,12,12,131,0
+6,search,79,79,795,0
