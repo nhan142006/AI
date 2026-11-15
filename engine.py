@@ -274,7 +274,9 @@ def analyze(board, player, depth):
 
 def review(board, player, depth, col):
     """Coach feedback on the move `col` that `player` (the human) just chose on `board`."""
-    best_col, best, scores, _ = search(board, player, depth, exact_alternatives=True)
+    if won(board[0]) or won(board[1]) or col not in legal_moves(board):
+        raise ValueError("Review needs a legal move on an unfinished board")
+    best_col, best, scores, stats = search(board, player, depth, exact_alternatives=True)
     score = scores[col]
     best_kind, best_moves = outcome(best, depth)
     kind, moves = outcome(score, depth)
@@ -289,14 +291,18 @@ def review(board, player, depth, col):
     elif kind == "loss" and best_kind != "loss":
         verdict = "blunder"
         text = (f"AI can now force a win in {turns(moves)}. "
-                f"{better.capitalize()} was safe ({label(best, depth)}).")
+                f"{better.capitalize()} avoided a proven loss at depth {depth} ({label(best, depth)}).")
     elif kind == "loss":
         verdict, text = "inaccuracy", f"Lost either way, but {better} would have held out longer."
     else:
         verdict = "good" if best - score <= 3 else "inaccuracy"
         text = f"{better.capitalize()} scored higher: {best:+d} against {score:+d} at depth {depth}."
+    played_line = best_line(board, player, depth, col)[1]
+    recommended_line = played_line if col == best_col else best_line(board, player, depth, best_col)[1]
     return {"column": col, "verdict": verdict, "text": text, "best": best_col,
-            "score": score, "scores": scores, "depth": depth}
+            "score": score, "scores": scores, "depth": depth, "best_score": best,
+            "score_gap": best - score, "before": board, "played_line": played_line,
+            "best_line": recommended_line, "nodes": stats.nodes, "cutoffs": stats.cutoffs}
 
 
 DEMO_POSITIONS = {
