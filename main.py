@@ -27,6 +27,10 @@ SIZE = 72
 TEXT_X, TEXT_WIDTH = 582, 470
 RESULTS = Path(__file__).with_name("results")
 STUDY_DEPTH = 4
+AI_TAB = pygame.Rect(578, 114, 222, 34)
+COACH_TAB = pygame.Rect(812, 114, 245, 34)
+PREVIEW_BUTTON = pygame.Rect(25, 674, 266, 30)
+VIEWPORT = pygame.Rect(TEXT_X, 168, TEXT_WIDTH, 482)
 
 
 class Game:
@@ -41,11 +45,15 @@ class Game:
         self.reset()
 
     def reset(self, board=EMPTY, turn=0, demo=None):
+        if getattr(self, "job", None) is not None:
+            self.job.cancel()
         self.board, self.turn, self.demo = board, turn, demo
         self.analysis = self.analyzed = self.coach = self.contrast = None
         self.job = self.pending = self.guess = None
         self.elapsed, self.moves, self.rated = 0.0, 0, False
         self.human = (None, None)  # Board before the human's last move, and that move.
+        self.view, self.preview, self.scroll, self.max_scroll = "ai", False, 0, 0
+        self.error = None
 
     @property
     def over(self):
@@ -53,6 +61,8 @@ class Game:
 
     @property
     def status(self):
+        if self.error:
+            return "Analysis failed - press R to start again"
         if won(self.board[0]):
             text = "You win!"
         elif won(self.board[1]):
@@ -71,6 +81,8 @@ class Game:
 def think(before, col, board, depth, coaching):
     """Background work for one AI turn: coach the human's move, then choose and explain a reply."""
     feedback = review(before, 0, depth, col) if coaching and col is not None else None
+    if won(board[0]) or won(board[1]) or not legal_moves(board):
+        return feedback, None, 0.0
     start = perf_counter()
     analysis = analyze(board, 1, depth)
     return feedback, analysis, (perf_counter() - start) * 1000
@@ -89,6 +101,12 @@ def log(filename, header, row):
 
 def play_ai_move(game, feedback, analysis, elapsed):
     game.coach, game.analysis, game.elapsed = feedback, analysis, elapsed
+    game.scroll, game.preview = 0, False
+    if feedback is not None and game.coaching and not game.study:
+        game.view = "coach"
+    if analysis is None:
+        game.turn, game.analyzed, game.contrast = 0, None, None
+        return
     game.analyzed = game.board
     alt = analysis["alternative"]
     game.contrast = None if alt is None else {"column": alt, "text": analysis["comparison"], "line": analysis["line"]}
@@ -123,6 +141,8 @@ def handle(game, event):
     if event.type == pygame.QUIT:
         return False
     study = game.study
+    if event.type == pygame.MOUSEWHEEL and VIEWPORT.collidepoint(pygame.mouse.get_pos()):
+        game.scroll = max(0, min(game.max_scroll, game.scroll - event.y * 48))
     if event.type == pygame.KEYDOWN:
         key = event.key
         if key == pygame.K_ESCAPE:
@@ -140,9 +160,20 @@ def handle(game, event):
             game.depth = key - pygame.K_0
         elif key == pygame.K_e:
             game.explain = not game.explain
+            game.preview, game.scroll = False, 0
         elif key == pygame.K_c:
             game.coaching = not game.coaching
-    if event.type == pygame.MOUSEBUTTONDOWN and BOARD.collidepoint(event.pos):
+            game.preview, game.scroll = False, 0
+            if not game.coaching:
+                game.view = "ai"
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not study:
+        if AI_TAB.collidepoint(event.pos):
+            game.view, game.preview, game.scroll = "ai", False, 0
+        elif COACH_TAB.collidepoint(event.pos) and game.coaching:
+            game.view, game.preview, game.scroll = "coach", False, 0
+        elif PREVIEW_BUTTON.collidepoint(event.pos) and game.view == "coach" and game.coach and game.explain:
+            game.preview = not game.preview
+    if event.type == pygame.MOUSEBUTTONDOWN and BOARD.collidepoint(event.pos) and not game.preview and not game.error:
         col = (event.pos[0] - BOARD.x) // SIZE
         if event.button == 1 and game.pending:
             if col in legal_moves(game.board):
@@ -151,20 +182,30 @@ def handle(game, event):
             before = game.board
             game.board, game.turn = drop(before, col, 0), 1
             game.human = (before, col)
+            game.preview, game.scroll, game.coach = False, 0, None
         elif event.button == 3 and game.analysis and game.explain:
             game.contrast = why_not(game.analyzed, 1, game.analysis["depth"], game.analysis, col)
+            game.view, game.scroll = "ai", 0
     return True
 
 
 def advance(game, executor):
     """Start the AI's turn in the background and collect its result."""
-    if game.turn != 1 or game.over or game.pending:
+    if game.turn != 1 or game.pending or game.error:
+        return
+    if game.over and not (game.coaching and game.human[1] is not None):
+        game.turn = 0
         return
     if game.job is None:
         before, col = game.human
         game.job = executor.submit(think, before, col, game.board, game.depth, game.coaching)
     elif game.job.done():
-        result, game.job = game.job.result(), None
+        try:
+            result = game.job.result()
+        except Exception as error:
+            game.error, game.job = type(error).__name__, None
+            return
+        game.job = None
         if game.study:
             game.pending = result
         else:
@@ -175,18 +216,6 @@ def draw(screen, fonts, game):
     def text(value, x, y, size=18, color=WHITE):
         screen.blit(fonts[size].render(str(value), True, color), (x, y))
 
-    def paragraph(value, y, size=20, color=WHITE):
-        line = ""
-        for word in value.split():
-            candidate = f"{line} {word}".strip()
-            if fonts[size].size(candidate)[0] > TEXT_WIDTH:
-                text(line, TEXT_X, y, size, color)
-                line, y = word, y + size + 7
-            else:
-                line = candidate
-        text(line, TEXT_X, y, size, color)
-        return y + size + 7
-
     def spot(row, col):
         return BOARD.x + col * SIZE + 36, BOARD.bottom - row * SIZE - 36
 
@@ -194,6 +223,8 @@ def draw(screen, fonts, game):
         return ((board[0] | board[1]) & sum(cell(row, col) for row in range(ROWS))).bit_count()
 
     analysis, study = game.analysis, game.study
+    preview = game.preview and game.coach and game.explain and game.view == "coach"
+    displayed = game.coach["before"] if preview else game.board
     screen.fill(BG)
     text("Connect Four", 25, 18, 32)
     text("You play yellow  •  AI plays red", 25, 60, 18, MUTED)
@@ -206,7 +237,9 @@ def draw(screen, fonts, game):
              582, 58, 18, MUTED)
 
     # One chip per column: what the search concluded about each move the AI could have made.
-    if analysis and game.explain:
+    if preview:
+        text("Review: the position BEFORE your last drop", 25, 106, 18, TEAL)
+    elif analysis and game.explain:
         text("How the AI rated each column before its move", 25, 86, 15, MUTED)
         for col in range(COLS):
             box = pygame.Rect(BOARD.x + col * SIZE + 3, 106, SIZE - 6, 28)
@@ -226,9 +259,12 @@ def draw(screen, fonts, game):
     for row in range(ROWS):
         for col in range(COLS):
             bit = cell(row, col)
-            color = YELLOW if game.board[0] & bit else RED if game.board[1] & bit else BG
+            color = YELLOW if displayed[0] & bit else RED if displayed[1] & bit else BG
             pygame.draw.circle(screen, color, spot(row, col), 28)
-    if analysis:
+    if preview:
+        for col, color, radius in ((game.coach["column"], YELLOW, 29), (game.coach["best"], TEAL, 23)):
+            pygame.draw.circle(screen, color, spot(height(displayed, col), col), radius, 3)
+    elif analysis:
         col = analysis["column"]
         pygame.draw.circle(screen, WHITE, spot(height(game.analyzed, col), col), 30, 2)
         contrast = game.contrast
@@ -240,49 +276,123 @@ def draw(screen, fonts, game):
         text("Click a column to play or to guess     R  New game     Esc  Quit", 25, 648, 18, MUTED)
     else:
         text("R  New game     F1  Win     F2  Block     F3  Search     Esc  Quit", 25, 648, 18, MUTED)
-        text("Right-click a column to ask why the AI did not play there", 25, 676, 18, MUTED)
+        if game.view == "coach" and game.coach and game.explain:
+            button(screen, fonts, PREVIEW_BUTTON, "Return to live board" if preview else "Show pre-move board", preview)
+            text("Yellow: played / teal: best" if preview else "Game over - press R" if game.over else "Live board - keep playing", 303, 681, 15, MUTED)
+        else:
+            text("Right-click a column to ask why the AI did not play there", 25, 676, 18, MUTED)
 
     pygame.draw.rect(screen, PANEL, (560, 100, 515, 600), border_radius=16)
-    text("AI move analysis", TEXT_X, 120, 24)
+    if study:
+        text("AI move analysis", TEXT_X, 120, 24)
+    else:
+        button(screen, fonts, AI_TAB, "AI decision", game.view == "ai")
+        button(screen, fonts, COACH_TAB, "Your move / Coach", game.view == "coach", game.coaching)
+    content = pygame.Surface((TEXT_WIDTH, 2300))
+    content.fill(PANEL)
+    content_height = draw_details(content, fonts, game)
+    game.max_scroll = max(0, content_height - VIEWPORT.height)
+    game.scroll = max(0, min(game.scroll, game.max_scroll))
+    screen.blit(content, VIEWPORT.topleft, (0, game.scroll, VIEWPORT.width, VIEWPORT.height))
+    if game.max_scroll:
+        track = pygame.Rect(VIEWPORT.right + 8, VIEWPORT.y, 4, VIEWPORT.height)
+        pygame.draw.rect(screen, "#33476a", track, border_radius=2)
+        height_px = max(30, int(VIEWPORT.height ** 2 / content_height))
+        thumb_y = track.y + int((track.height - height_px) * game.scroll / game.max_scroll)
+        pygame.draw.rect(screen, MUTED, (track.x, thumb_y, track.width, height_px), border_radius=2)
+    note = "Scroll inside this panel. Scores favor YOU." if game.view == "coach" and game.coaching else "Scroll inside this panel. Scores favor the AI."
+    if study and not game.explain:
+        note = ""
+    text(note, TEXT_X, 668, 15, MUTED)
+
+
+def button(screen, fonts, rect, caption, active=False, enabled=True):
+    pygame.draw.rect(screen, "#27666a" if active and enabled else "#2a3a57", rect, border_radius=8)
+    rendered = fonts[18].render(caption, True, WHITE if enabled else MUTED)
+    screen.blit(rendered, rendered.get_rect(center=rect.center))
+
+
+def draw_details(screen, fonts, game):
+    """Draw all evidence into scrollable content with a fixed, reachable header."""
+    y = 0
+
+    def paragraph(value, size=20, color=WHITE):
+        nonlocal y
+        for part in str(value).split("\n"):
+            line = ""
+            for word in part.split():
+                candidate = f"{line} {word}".strip()
+                if fonts[size].size(candidate)[0] > TEXT_WIDTH - 12 and line:
+                    screen.blit(fonts[size].render(line, True, color), (0, y))
+                    line, y = word, y + size + 7
+                else:
+                    line = candidate
+            screen.blit(fonts[size].render(line, True, color), (0, y))
+            y += size + 7
+        y += 8
+
+    analysis, study = game.analysis, game.study
+    if game.error:
+        paragraph(f"Analysis failed ({game.error}). Press R to start a new game.", color=RED)
+        return y
+    if not game.explain:
+        if analysis:
+            paragraph(f"AI played column {analysis['column'] + 1}.", color=YELLOW)
+        if not study:
+            paragraph("Explanations are hidden. Press E to show them.", 18, MUTED)
+        return y
+    if game.view == "coach" and game.coaching and not study:
+        coach = game.coach
+        if coach is None:
+            paragraph("Play a move with Coach on to review your choice. The review uses the board before your drop.", color=MUTED)
+            return y
+        paragraph(f"Your column {coach['column'] + 1} - {coach['verdict'].upper()}", color=VERDICT[coach["verdict"]])
+        paragraph(coach["text"])
+        paragraph(f"Played score {coach['score']:+d}; recommended column {coach['best'] + 1}: {coach['best_score']:+d}. Gap: {coach['score_gap']}.", color=TEAL)
+        paragraph(f"Depth {coach['depth']} - {coach['nodes']:,} nodes - {coach['cutoffs']:,} cutoffs", 18)
+        paragraph("Every candidate uses the SAME pre-move board and depth. Higher scores favor you. A tied best move is accepted.", 18, MUTED)
+        for heading, line in (("Your searched line", coach["played_line"]), ("Recommended line", coach["best_line"])):
+            steps = " -> ".join(f"{'You' if index % 2 == 0 else 'AI'} {col + 1}" for index, col in enumerate(line))
+            paragraph(f"{heading}: {steps}", 18, TEAL)
+        paragraph("All legal choices from your perspective", color=YELLOW)
+        for col, score in sorted(coach["scores"].items(), key=lambda item: -item[1]):
+            tags = []
+            if col == coach["column"]:
+                tags.append("played")
+            if score == coach["best_score"]:
+                tags.append("tied best" if col != coach["best"] else "recommended")
+            paragraph(f"Column {col + 1}: {label(score, coach['depth'])}  {' / '.join(tags)}", 18)
+        paragraph("Win N counts your winning drops. Loss N counts the AI's winning drops. Lines alternate both players and assume best play within this depth. Signed numbers are heuristic estimates, not win probabilities.", 18, MUTED)
+        return y
+
     if game.demo:
-        text(game.demo, TEXT_X, 156, 18, TEAL)
-    y = 190
+        paragraph(game.demo, color=TEAL)
     if not analysis:
         intro = ("Play a move, then guess where the AI will reply." if study
                  else "Play a move or load a demo position to see the AI's decision.")
-        paragraph(intro, y, 20, MUTED)
-        return
+        paragraph(intro, color=MUTED)
+        return y
     chosen = analysis["column"]
     if game.guess is not None:
         hit = "correct" if game.guess == chosen else "not this time"
-        y = paragraph(f"Your guess: column {game.guess + 1}  ·  {hit}", y, 20, TEAL) + 8
-    if not game.explain:
-        y = paragraph(f"AI played column {chosen + 1}.", y, 20, YELLOW)
-        if not study:
-            paragraph("Explanations are hidden. Press E to show them.", y + 8, 18, MUTED)
-        return
-    y = paragraph(f"AI played column {chosen + 1}  ·  {analysis['labels'][chosen]}", y, 20, YELLOW)
-    y = paragraph(analysis["explanation"], y + 4)
+        paragraph(f"Your guess: column {game.guess + 1}  ·  {hit}", color=TEAL)
+    paragraph(f"AI played column {chosen + 1}  ·  {analysis['labels'][chosen]}", color=YELLOW)
+    paragraph(analysis["explanation"])
     contrast = game.contrast
     if contrast:
         alt = contrast["column"]
         heading = f"Why not column {alt + 1}?"
         if alt in analysis["labels"] and alt != chosen:
             heading += f"  ·  {analysis['labels'][alt]}"
-        y = paragraph(heading, y + 16, 20, TEAL)
-        y = paragraph(contrast["text"], y + 4, 20, MUTED)
+        paragraph(heading, color=TEAL)
+        paragraph(contrast["text"], color=MUTED)
         if contrast["line"]:
             steps = ", ".join(f"{'AI' if index % 2 == 0 else 'You'} {col + 1}" for index, col in enumerate(contrast["line"]))
-            y = paragraph(f"Expected line: {steps}", y + 4, 18, MUTED)
-    y = paragraph(f"Depth {analysis['depth']}  ·  {analysis['nodes']:,} nodes  ·  {analysis['cutoffs']:,} cutoffs"
-                  f"  ·  {game.elapsed:.0f} ms", y + 16, 18)
-    if game.coaching and game.coach:
-        coach = game.coach
-        pygame.draw.line(screen, "#33476a", (TEXT_X, y + 12), (TEXT_X + TEXT_WIDTH, y + 12))
-        y = paragraph(f"Coach on your move  ·  column {coach['column'] + 1}", y + 26, 20)
-        y = paragraph(coach["verdict"].upper(), y + 2, 18, VERDICT[coach["verdict"]])
-        y = paragraph(coach["text"], y + 2, 20, MUTED)
-    text("Scores are from the AI's side. Coach scores are from yours.", TEXT_X, 668, 15, MUTED)
+            paragraph(f"Expected line: {steps}", 18, MUTED)
+    paragraph(f"Depth {analysis['depth']}  ·  {analysis['nodes']:,} nodes  ·  {analysis['cutoffs']:,} cutoffs"
+              f"  ·  {game.elapsed:.0f} ms", 18)
+    paragraph("These scores describe the position BEFORE the AI's last drop. Win N counts AI drops; Loss N counts your drops. Signed values are depth-limited heuristic estimates, not win probabilities.", 18, MUTED)
+    return y
 
 
 def main(smoke=False, study=None):

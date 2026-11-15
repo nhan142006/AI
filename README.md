@@ -29,6 +29,9 @@ dùng `.venv/bin/python` thay cho `.\.venv\Scripts\python.exe`.
 |---|---|
 | Click trái một cột | Thả quân vàng. AI thả quân đỏ và hiện phân tích. |
 | Click phải một cột | Hỏi "Why not column X?": AI nêu hậu quả và chuỗi nước dự kiến. |
+| Tab AI decision / Your move | Xem riêng giải thích của AI hoặc đánh giá nước vừa đi của bạn. |
+| Show pre-move board / Return to live board | Xem thế cờ trước nước của bạn rồi trở lại ván đang chơi. Vòng vàng đánh dấu nước đã chọn, vòng xanh đánh dấu nước đề xuất. |
+| Lăn chuột trong bảng phân tích | Cuộn để đọc đầy đủ lời giải thích, hai dòng tìm kiếm và các điểm số. |
 | E | Bật/tắt toàn bộ phần giải thích. |
 | C | Bật/tắt huấn luyện viên (nhận xét nước đi của người chơi). |
 | 2 / 4 / 6 | Đổi độ sâu cho lần tìm kiếm kế tiếp. |
@@ -58,6 +61,14 @@ Cột AI chọn có viền trắng.
 `BEST`, `GOOD` (kém nước tốt nhất tối đa 3 điểm, hoặc thắng chậm hơn), `INACCURACY`,
 `MISSED WIN`, `BLUNDER` (nước này để AI thắng chắc trong khi có nước an toàn).
 
+Tab **Your move / Coach** hiển thị điểm nước đã đi, điểm nước đề xuất và chênh lệch,
+hai chuỗi nước dự kiến từ cùng thế cờ trước lượt đi, cùng điểm cho mọi cột hợp lệ.
+Các điểm trong tab này có lợi cho **bạn**, còn tab **AI decision** tính từ phía **AI**.
+Nước đồng điểm tốt nhất được chấp nhận. Nút xem lại chỉ mở bản xem trước;
+trở về bàn cờ đang chơi để tiếp tục thả quân. Coach cũng đánh giá nước kết thúc ván của bạn.
+Lời giải thích ghi rõ độ sâu: một nước chưa bị chứng minh thua trong phạm vi tìm kiếm
+vẫn có thể thua khi tìm sâu hơn. Chuỗi nước là dự đoán khi hai bên chơi tốt nhất.
+
 Mọi điểm số chỉ đúng **trong phạm vi độ sâu đã tìm**. Từng nước ở gốc được tìm với cửa sổ
 Alpha-Beta đầy đủ để lấy điểm chính xác. Khi đồng điểm, AI ưu tiên cột 4, 3, 5, 2, 6, 1, 7.
 
@@ -80,7 +91,7 @@ Dữ liệu ghi nối vào `results/study.csv` và `results/study_ratings.csv`.
 ```powershell
 .\.venv\Scripts\python.exe experiment.py   # khoảng 2 phút, ghi CSV vào results/
 .\.venv\Scripts\python.exe plots.py        # vẽ biểu đồ vào results/figures/
-.\.venv\Scripts\python.exe -m pytest       # 12 test cho luật chơi, tìm kiếm và giải thích
+.\.venv\Scripts\python.exe -m pytest       # 20 test cho engine, Coach, giao diện và khảo sát
 ```
 
 | File | Nội dung |
@@ -99,3 +110,11 @@ Kết quả sức chơi chỉ áp dụng cho bộ khai cuộc và đối thủ �
 
 Mã nguồn dùng bitboard bằng số nguyên Python để biểu diễn bàn 6×7.
 Transposition Table nằm ngoài phạm vi của bản này.
+
+Bản nâng cấp Coach được xây trực tiếp trên `main` tại commit `2cd6a32` của
+`nhan142006/AI`. Bộ test bổ sung kiểm tra thế cờ trước lượt đi, chênh lệch điểm,
+hai chuỗi nước, xem lại không thay đổi ván, nước thắng của người chơi,
+kết quả cũ sau khi tạo ván mới và luồng đoán nước cho cả hai nhóm khảo sát.
+Giao diện được kiểm tra bằng Pygame với display driver `dummy`.
+Các CSV có sẵn là kết quả thực nghiệm trên bản main gốc; thời gian tìm thêm
+hai chuỗi Coach trong bản nâng cấp chưa được đo riêng.
