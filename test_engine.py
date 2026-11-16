@@ -2,7 +2,7 @@
 
 import pytest
 
-from engine import (DEMO_POSITIONS, EMPTY, WIN, analyze, best_line, drop, label, legal_moves, outcome, replay,
+from engine import (DEMO_POSITIONS, EMPTY, WIN, analyze, best_line, drop, hint, label, legal_moves, outcome, replay,
                     review, search, why_not, won)
 from experiment import check_claims, random_positions
 
@@ -72,3 +72,20 @@ def test_every_claim_holds_and_the_checker_catches_a_false_one():
     assert all(holds for _, holds in check_claims(board, player, result))
     result["scores"] = {**result["scores"], 2: 5}  # Pretend the losing column 3 is fine.
     assert not all(holds for _, holds in check_claims(board, player, result))
+
+
+def test_hint_takes_a_win_and_blocks_a_threat():
+    win = hint(*replay([1, 7, 2, 7, 3, 6]), 4)   # Yellow has columns 1-3 on the bottom row.
+    block = hint(*replay([7, 1, 7, 2, 6, 3]), 4)  # Red has columns 1-3; yellow must block.
+    assert (win["column"], win["reason"], win["labels"][3]) == (3, "win", "Win in 1")
+    assert (block["column"], block["reason"]) == (3, "block")
+    with pytest.raises(ValueError):
+        hint(*replay([1, 2, 1, 2, 1, 2, 1]), 4)
+
+
+def test_hint_is_the_move_coach_would_call_best():
+    for board, player in random_positions(25, seed=3):
+        tip = hint(board, player, 4)
+        assert review(board, player, 4, tip["column"])["verdict"] == "best"
+        assert tip["scores"] == search(board, player, 4, pruning=False, exact_alternatives=True)[2]
+        assert best_line(board, player, 4, tip["column"])[0] == tip["score"]

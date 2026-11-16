@@ -272,6 +272,47 @@ def analyze(board, player, depth):
     return result
 
 
+def hint(board, player, depth):
+    """Suggest a move for `player` (the human) before they play, with the reason, in the player's own terms."""
+    if won(board[0]) or won(board[1]) or not legal_moves(board):
+        raise ValueError("Hint needs an unfinished board")
+    best_col, best, scores, stats = search(board, player, depth, exact_alternatives=True)
+    opponent = 1 - player
+    after = drop(board, best_col, player)
+    kind, moves = outcome(best, depth)
+    threats = winning_columns(board, opponent)
+    losing = [col for col in sorted(scores) if col != best_col and scores[col] <= -WIN]
+    created = winning_columns(after, player)
+    name = f"Column {best_col + 1}"
+    if won(after[player]):
+        reason, text = "win", f"{name} makes four in a row: you win now."
+    elif threats and not winning_columns(after, opponent):
+        reason, text = "block", f"{name} blocks the AI's four in a row."
+        if kind == "win":
+            text += f" You can then force a win in {turns(moves)}."
+        if kind == "loss":
+            text += f" The AI can still force a win in {turns(moves)}."
+    elif kind == "loss":
+        reason = "lost"
+        if len(threats) > 1:
+            text = f"The AI threatens to win in columns {names(threats)} and you cannot block both."
+        else:
+            text = f"Every move loses against best play. {name} holds out the longest: {turns(moves)}."
+    elif kind == "win":
+        reason, text = "forced_win", f"{name} forces a win in {turns(moves)}, whatever the AI replies."
+    elif losing:
+        reason = "avoid"
+        text = (f"{name} is safe. {'Columns' if len(losing) > 1 else 'Column'} {names(losing)} "
+                f"would let the AI win by force.")
+    elif created:
+        reason, text = "threat", f"{name} sets up four in a row in column {names(created)}."
+    else:
+        reason, text = "search", f"{name} has the highest score at depth {depth}."
+    return {"column": best_col, "score": best, "scores": scores, "reason": reason, "text": text,
+            "labels": {col: label(value, depth) for col, value in scores.items()},
+            "line": best_line(board, player, depth, best_col)[1], "depth": depth, "nodes": stats.nodes}
+
+
 def review(board, player, depth, col):
     """Coach feedback on the move `col` that `player` (the human) just chose on `board`."""
     if won(board[0]) or won(board[1]) or col not in legal_moves(board):

@@ -9,7 +9,7 @@ from time import perf_counter
 
 import pygame
 
-from engine import (COLS, ROWS, DEMO_POSITIONS, EMPTY, analyze, cell, drop, label, legal_moves, outcome,
+from engine import (COLS, ROWS, DEMO_POSITIONS, EMPTY, analyze, cell, drop, hint, label, legal_moves, outcome,
                     replay, review, why_not, won)
 
 BG = "#101829"
@@ -19,6 +19,7 @@ MUTED = "#a8b8ce"
 YELLOW = "#ffce66"
 RED = "#ff737e"
 TEAL = "#75dfcf"
+HINT = "#8be38f"
 CHIP = {"win": "#1f6357", "loss": "#7a2f3b", "eval": "#2a3a57"}
 VERDICT = {"best": TEAL, "good": TEAL, "inaccuracy": YELLOW, "missed win": RED, "blunder": RED}
 WINDOW = (1100, 720)
@@ -27,6 +28,8 @@ SIZE = 72
 TEXT_X, TEXT_WIDTH = 582, 470
 RESULTS = Path(__file__).with_name("results")
 STUDY_DEPTH = 4
+HINT_EXTRA_DEPTH = 2  # The hint looks further ahead than the AI it plays against.
+HINT_MAX_DEPTH = 7
 AI_TAB = pygame.Rect(578, 114, 222, 34)
 COACH_TAB = pygame.Rect(812, 114, 245, 34)
 PREVIEW_BUTTON = pygame.Rect(25, 674, 266, 30)
@@ -40,13 +43,15 @@ class Game:
         self.depth = STUDY_DEPTH
         self.explain = not study or study["condition"] == "explain"
         self.coaching = not study
+        self.hinting = False
         self.study = study
         self.games = 0
         self.reset()
 
     def reset(self, board=EMPTY, turn=0, demo=None):
-        if getattr(self, "job", None) is not None:
-            self.job.cancel()
+        for running in (getattr(self, "job", None), getattr(self, "hint_job", None)):
+            if running is not None:
+                running.cancel()
         self.board, self.turn, self.demo = board, turn, demo
         self.analysis = self.analyzed = self.coach = self.contrast = None
         self.job = self.pending = self.guess = None
@@ -54,6 +59,18 @@ class Game:
         self.human = (None, None)  # Board before the human's last move, and that move.
         self.view, self.preview, self.scroll, self.max_scroll = "ai", False, 0, 0
         self.error = None
+        self.hint = self.hint_job = None
+
+    @property
+    def hint_depth(self):
+        return min(self.depth + HINT_EXTRA_DEPTH, HINT_MAX_DEPTH)
+
+    @property
+    def hint_ready(self):
+        """True when a hint for the current board can be shown."""
+        return (self.hinting and not self.study and self.turn == 0 and not self.over and not self.error
+                and self.hint is not None and self.hint["board"] == self.board
+                and self.hint["depth"] == self.hint_depth)
 
     @property
     def over(self):
@@ -161,6 +178,9 @@ def handle(game, event):
         elif key == pygame.K_e:
             game.explain = not game.explain
             game.preview, game.scroll = False, 0
+        elif key == pygame.K_h:
+            game.hinting = not game.hinting
+            game.scroll = 0
         elif key == pygame.K_c:
             game.coaching = not game.coaching
             game.preview, game.scroll = False, 0
@@ -182,15 +202,35 @@ def handle(game, event):
             before = game.board
             game.board, game.turn = drop(before, col, 0), 1
             game.human = (before, col)
-            game.preview, game.scroll, game.coach = False, 0, None
+            game.preview, game.scroll, game.coach, game.hint = False, 0, None, None
         elif event.button == 3 and game.analysis and game.explain:
             game.contrast = why_not(game.analyzed, 1, game.analysis["depth"], game.analysis, col)
             game.view, game.scroll = "ai", 0
     return True
 
 
+def advance_hint(game, executor):
+    """While hints are on, find a suggested move for the human in the background."""
+    job = game.hint_job
+    if job is not None and job.done():
+        game.hint_job = None
+        try:
+            result = job.result()
+        except Exception:  # A hint is optional: never let it stop the game.
+            result = None
+        if result is not None and result["board"] == game.board and result["depth"] == game.hint_depth:
+            game.hint = result
+        return
+    wanted = game.hinting and not game.study and game.turn == 0 and not game.over and not game.error
+    stale = game.hint is None or game.hint["board"] != game.board or game.hint["depth"] != game.hint_depth
+    if wanted and job is None and stale:
+        board, depth = game.board, game.hint_depth
+        game.hint_job = executor.submit(lambda: {**hint(board, 0, depth), "board": board})
+
+
 def advance(game, executor):
     """Start the AI's turn in the background and collect its result."""
+    advance_hint(game, executor)
     if game.turn != 1 or game.pending or game.error:
         return
     if game.over and not (game.coaching and game.human[1] is not None):
@@ -233,8 +273,8 @@ def draw(screen, fonts, game):
         text(f"Depth {game.depth}", 582, 58, 18, MUTED)
     else:
         text(f"Depth {game.depth}  ·  Press 2 / 4 / 6", 582, 26, 20, TEAL)
-        text(f"E  Explanations {'on' if game.explain else 'off'}      C  Coach {'on' if game.coaching else 'off'}",
-             582, 58, 18, MUTED)
+        text(f"E  Explanations {'on' if game.explain else 'off'}    C  Coach {'on' if game.coaching else 'off'}"
+             f"    H  Hint {'on' if game.hinting else 'off'}", 582, 58, 18, MUTED)
 
     # One chip per column: what the search concluded about each move the AI could have made.
     if preview:
@@ -268,10 +308,18 @@ def draw(screen, fonts, game):
         col = analysis["column"]
         pygame.draw.circle(screen, WHITE, spot(height(game.analyzed, col), col), 30, 2)
         contrast = game.contrast
-        if game.explain and contrast and contrast["column"] != col and contrast["column"] in analysis["scores"]:
+        if (game.explain and contrast and contrast["column"] != col and contrast["column"] in analysis["scores"]
+                and not game.hint_ready):
             alt = contrast["column"]
             pygame.draw.circle(screen, TEAL, spot(height(game.analyzed, alt), alt), 30, 2)
-    text(game.status, 25, 606, 24, YELLOW)
+    if game.hint_ready:
+        col = game.hint["column"]
+        pygame.draw.circle(screen, HINT, spot(height(game.board, col), col), 31, 4)
+        text(f"Your turn  ·  Hint: column {col + 1}", 25, 606, 24, HINT)
+    elif game.hinting and not study and game.turn == 0 and not game.over and not game.error:
+        text("Your turn  ·  finding a hint...", 25, 606, 24, YELLOW)
+    else:
+        text(game.status, 25, 606, 24, YELLOW)
     if study:
         text("Click a column to play or to guess     R  New game     Esc  Quit", 25, 648, 18, MUTED)
     else:
@@ -335,6 +383,17 @@ def draw_details(screen, fonts, game):
     if game.error:
         paragraph(f"Analysis failed ({game.error}). Press R to start a new game.", color=RED)
         return y
+    if game.hint_ready:
+        tip = game.hint
+        paragraph(f"Hint for your next move  ·  column {tip['column'] + 1}  ·  {tip['labels'][tip['column']]}", color=HINT)
+        paragraph(tip["text"])
+        steps = " -> ".join(f"{'You' if index % 2 == 0 else 'AI'} {col + 1}" for index, col in enumerate(tip["line"]))
+        paragraph(f"Expected line: {steps}", 18, MUTED)
+        others = ", ".join(f"{col + 1}: {tip['labels'][col]}" for col in sorted(tip["scores"]) if col != tip["column"])
+        if others:
+            paragraph(f"Other columns  {others}", 18, MUTED)
+        paragraph(f"Searched {tip['depth']} plies ahead ({tip['nodes']:,} nodes), {tip['depth'] - game.depth} more than "
+                  f"the AI. Scores favor you. A hint is the best move found, not a guaranteed win.", 15, MUTED)
     if not game.explain:
         if analysis:
             paragraph(f"AI played column {analysis['column'] + 1}.", color=YELLOW)

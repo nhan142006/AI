@@ -34,6 +34,7 @@ dùng `.venv/bin/python` thay cho `.\.venv\Scripts\python.exe`.
 | Lăn chuột trong bảng phân tích | Cuộn để đọc đầy đủ lời giải thích, hai dòng tìm kiếm và các điểm số. |
 | E | Bật/tắt toàn bộ phần giải thích. |
 | C | Bật/tắt huấn luyện viên (nhận xét nước đi của người chơi). |
+| H | Bật/tắt gợi ý: khi đến lượt bạn, vòng xanh lá đánh dấu cột nên đi, bảng bên phải ghi lý do và chuỗi nước dự kiến. |
 | 2 / 4 / 6 | Đổi độ sâu cho lần tìm kiếm kế tiếp. |
 | F1 / F2 / F3 | Thế cờ demo: AI thắng ngay, AI phải chặn, so sánh điểm tìm kiếm. |
 | R / Esc | Ván mới / thoát. |
@@ -69,6 +70,8 @@ trở về bàn cờ đang chơi để tiếp tục thả quân. Coach cũng đ�
 Lời giải thích ghi rõ độ sâu: một nước chưa bị chứng minh thua trong phạm vi tìm kiếm
 vẫn có thể thua khi tìm sâu hơn. Chuỗi nước là dự đoán khi hai bên chơi tốt nhất.
 
+**Gợi ý (phím H)** tìm nước tốt nhất cho người chơi **trước** khi thả quân, sâu hơn AI 2 nước (tối đa 7). Lý do dùng cùng các loại như lời giải thích của AI, nhưng nói từ phía bạn: thắng ngay, chặn AI, thắng chắc sau N nước, tránh nước thua, tạo đe dọa. Gợi ý trùng với nước Coach chấm `BEST` ở cùng độ sâu. Gợi ý không đảm bảo thắng: trong thử nghiệm 10 ván đi theo gợi ý hoàn toàn, người chơi thắng 7/10 ván trước AI độ sâu 2 và 5/10 ván trước AI độ sâu 4 hoặc 6. Chế độ khảo sát tắt gợi ý.
+
 Mọi điểm số chỉ đúng **trong phạm vi độ sâu đã tìm**. Từng nước ở gốc được tìm với cửa sổ
 Alpha-Beta đầy đủ để lấy điểm chính xác. Khi đồng điểm, AI ưu tiên cột 4, 3, 5, 2, 6, 1, 7.
 
@@ -91,7 +94,7 @@ Dữ liệu ghi nối vào `results/study.csv` và `results/study_ratings.csv`.
 ```powershell
 .\.venv\Scripts\python.exe experiment.py   # khoảng 2 phút, ghi CSV vào results/
 .\.venv\Scripts\python.exe plots.py        # vẽ biểu đồ vào results/figures/
-.\.venv\Scripts\python.exe -m pytest       # 20 test cho engine, Coach, giao diện và khảo sát
+.\.venv\Scripts\python.exe -m pytest       # 23 test cho engine, Coach, gợi ý, giao diện và khảo sát
 ```
 
 | File | Nội dung |

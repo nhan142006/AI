@@ -158,3 +158,37 @@ def test_worker_error_does_not_crash_the_ui(display):
     app.draw(screen, fonts, game)
     game.reset()
     assert game.error is None
+
+
+def settle_hint(game, executor):
+    app.advance(game, executor)
+    if game.hint_job is not None:
+        game.hint_job.result(timeout=10)
+        app.advance(game, executor)
+
+
+def test_hint_follows_the_board_and_stays_out_of_the_study(display):
+    screen, fonts = display
+    game = app.Game()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        settle_hint(game, executor)
+        assert game.hint is None and game.hint_job is None  # Hints start switched off.
+        app.handle(game, pygame.event.Event(pygame.KEYDOWN, key=pygame.K_h))
+        settle_hint(game, executor)
+        assert game.hint_ready and game.hint["board"] == EMPTY and game.hint["depth"] == 6
+        app.draw(screen, fonts, game)
+        app.handle(game, board_click(game.hint["column"]))
+        assert game.hint is None and not game.hint_ready
+        finish(game, executor)
+        settle_hint(game, executor)
+        assert game.hint_ready and game.hint["board"] == game.board
+        app.handle(game, pygame.event.Event(pygame.KEYDOWN, key=pygame.K_2))
+        assert not game.hint_ready  # A new depth needs a new hint.
+        settle_hint(game, executor)
+        assert game.hint_ready and game.hint["depth"] == 4
+        app.draw(screen, fonts, game)
+    study = app.Game({"participant": "PTEST", "condition": "explain"})
+    app.handle(study, pygame.event.Event(pygame.KEYDOWN, key=pygame.K_h))
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        settle_hint(study, executor)
+    assert not study.hinting and study.hint is None and study.hint_job is None
